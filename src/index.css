@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-brand-primary: #0F172A;
+  --color-brand-accent: #06B6D4;
+  --color-brand-surface: #F1F5F9;
+}
+
+@layer base {
+  body {
+    @apply bg-[var(--color-brand-surface)] text-slate-900 antialiased;
+  }
+
+  @media print {
+    body * {
+      visibility: hidden;
+    }
+    #print-section, #print-section * {
+      visibility: visible;
+    }
+    #print-section {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+    }
+    .no-print {
+      display: none !important;
+    }
+  }
+}
+
+/* Premium Card Style */
+.premium-card {
+  @apply bg-white rounded-[2rem] border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-300;
+}
+
+.premium-card:hover {
+  @apply shadow-[0_20px_50px_rgba(0,0,0,0.08)] -translate-y-1;
+}
+
+/* Thermal Receipt Styles */
+.print-thermal {
+  width: 80mm;
+  padding: 5mm;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+/* A4 Styles */
+.print-a4 {
+  width: 210mm;
+  padding: 20mm;
+  font-family: var(--font-sans);
+}
