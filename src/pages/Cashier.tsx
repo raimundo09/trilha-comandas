@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { storage } from '../lib/storage';
 import { Comanda, Service } from '../types';
-import { formatCurrency, cn } from '../lib/utils';
+import { formatCurrency, cn, generateId } from '../lib/utils';
 import { Search, Receipt, CheckCircle2, Printer, AlertCircle, Wallet, History, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PrintLayout from '../components/PrintLayout';
@@ -15,12 +15,77 @@ export default function Cashier() {
   const [services, setServices] = useState<Service[]>([]);
   const [printFormat, setPrintFormat] = useState<'a4' | 'thermal' | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
+  const [showCloseAllModal, setShowCloseAllModal] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 4000);
+  };
+
+  const handleOpenCloseAllModal = () => {
+    if (openComandas.length === 0) {
+      showToast('Nenhuma comanda aberta para fechar.', 'info');
+      return;
+    }
+    setShowCloseAllModal(true);
+  };
+
+  const confirmCloseAll = async () => {
+    setLoading(true);
+    try {
+      await storage.closeAllOpenComandas();
+      
+      const now = new Date().toISOString();
+      if (comanda && comanda.status === 'Aberta') {
+        setComanda({
+          ...comanda,
+          status: 'Paga',
+          paidAt: now,
+          updatedAt: now,
+        });
+      }
+      
+      await refreshOpenComandas();
+      showToast('Todas as comandas foram baixadas com sucesso.', 'success');
+      setShowCloseAllModal(false);
+    } catch (err) {
+      console.error("Erro ao fechar todas as comandas:", err);
+      showToast('Erro ao baixar todas as comandas.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const data = storage.getComandas().filter(c => c.status === 'Aberta');
-    setOpenComandas(data);
-    setServices(storage.getServices());
+    const loadData = async () => {
+      try {
+        const [allComandas, allServices] = await Promise.all([
+          storage.getComandas(),
+          storage.getServices(),
+        ]);
+        setOpenComandas(allComandas.filter(c => c.status === 'Aberta'));
+        setServices(allServices);
+      } catch (err) {
+        console.error("Erro ao carregar dados:", err);
+      } finally {
+        setLoadingData(false);
+      }
+    };
+    loadData();
   }, []);
+
+  const refreshOpenComandas = async () => {
+    try {
+      const all = await storage.getComandas();
+      setOpenComandas(all.filter(c => c.status === 'Aberta'));
+    } catch (err) {
+      console.error("Erro ao atualizar comandas:", err);
+    }
+  };
 
   const searchComanda = async (e?: { preventDefault: () => void }) => {
     if (e) e.preventDefault();
@@ -42,7 +107,7 @@ export default function Cashier() {
             );
           } else {
             updatedItems = [...comanda.items, {
-              id: crypto.randomUUID(),
+              id: generateId(),
               code: product.code,
               name: product.name,
               price: product.price,
@@ -51,7 +116,7 @@ export default function Cashier() {
           }
           const updatedTotal = updatedItems.reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
           const updates = { items: updatedItems, total: updatedTotal, updatedAt: new Date().toISOString() };
-          storage.updateComanda(comanda.id, updates);
+          await storage.updateComanda(comanda.id, updates);
           setComanda({ ...comanda, ...updates });
           setSearchCode('');
           return;
@@ -63,7 +128,7 @@ export default function Cashier() {
       }
 
       // 2. Search for comanda
-      const found = storage.getOpenComandaByNumber(searchCode) || storage.getComandaByCode(searchCode);
+      const found = await storage.getOpenComandaByNumber(searchCode) || await storage.getComandaByCode(searchCode);
       
       if (!found) {
         setError('Comanda ou produto não encontrado.');
@@ -81,19 +146,19 @@ export default function Cashier() {
     }
   };
 
-  const reopenComanda = () => {
+  const reopenComanda = async () => {
     if (!comanda || comanda.status === 'Aberta') return;
     
-    const existingOpen = storage.getOpenComandaByNumber(comanda.code);
+    const existingOpen = await storage.getOpenComandaByNumber(comanda.code);
     if (existingOpen) {
       setError(`Não é possível reabrir. Já existe uma comanda #${comanda.code} aberta.`);
       return;
     }
 
     try {
-      storage.updateComanda(comanda.id, { status: 'Aberta', updatedAt: new Date().toISOString() });
+      await storage.updateComanda(comanda.id, { status: 'Aberta', updatedAt: new Date().toISOString() });
       setComanda({ ...comanda, status: 'Aberta' });
-      setOpenComandas(storage.getComandas().filter(c => c.status === 'Aberta'));
+      await refreshOpenComandas();
     } catch (err) {
       console.error("Error reopening comanda:", err);
     }
@@ -104,17 +169,14 @@ export default function Cashier() {
     setLoading(true);
     try {
       const now = new Date().toISOString();
-      storage.updateComanda(comanda.id, {
+      await storage.updateComanda(comanda.id, {
         status: 'Paga',
         updatedAt: now,
         paidAt: now,
       });
       const updatedComanda = { ...comanda, status: 'Paga' as const, paidAt: now };
       setComanda(updatedComanda);
-      
-      // Update open comandas list
-      const data = storage.getComandas().filter(c => c.status === 'Aberta');
-      setOpenComandas(data);
+      await refreshOpenComandas();
     } catch (err) {
       console.error("Error finalizing payment:", err);
       setError('Erro ao finalizar pagamento.');
@@ -123,15 +185,13 @@ export default function Cashier() {
     }
   };
 
-  const handleDeleteComanda = () => {
+  const handleDeleteComanda = async () => {
     if (!comanda) return;
     try {
-      storage.deleteComanda(comanda.id);
+      await storage.deleteComanda(comanda.id);
       setComanda(null);
       setShowDeleteConfirm(false);
-      // Update open comandas list
-      const data = storage.getComandas().filter(c => c.status === 'Aberta');
-      setOpenComandas(data);
+      await refreshOpenComandas();
     } catch (err) {
       console.error("Error deleting comanda:", err);
       setError('Erro ao excluir comanda.');
@@ -199,33 +259,53 @@ export default function Cashier() {
           </form>
 
           <div className="premium-card p-8">
-            <h2 className="text-xl font-extrabold text-slate-900 mb-6 flex items-center gap-3">
-              <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-                <History className="w-6 h-6 text-amber-600" />
-              </div>
-              Abertas
-            </h2>
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-              {openComandas.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => {
-                    setSearchCode(c.code);
-                    setComanda(c);
-                    setError('');
-                    setShowDeleteConfirm(false);
-                  }}
-                  className="w-full flex justify-between items-center p-4 bg-slate-50 hover:bg-cyan-50 rounded-2xl transition-all border border-transparent hover:border-cyan-100 group"
-                >
-                  <span className="font-mono font-black text-slate-900 group-hover:text-cyan-600 transition-colors">{c.code}</span>
-                  <span className="font-black text-slate-900">{formatCurrency(c.total)}</span>
-                </button>
-              ))}
-              {openComandas.length === 0 && (
-                <div className="text-center py-10 opacity-20">
-                  <Receipt className="w-12 h-12 mx-auto mb-2" />
-                  <p className="font-bold text-sm">Nenhuma pendência</p>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-3">
+                <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
+                  <History className="w-6 h-6 text-amber-600" />
                 </div>
+                Abertas
+              </h2>
+              <button
+                type="button"
+                onClick={handleOpenCloseAllModal}
+                className="text-xs font-black bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-2.5 rounded-xl shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                Fechar Todas
+              </button>
+            </div>
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+              {loadingData ? (
+                <div className="flex justify-center py-8">
+                  <div className="relative w-8 h-8">
+                    <div className="absolute inset-0 border-3 border-cyan-100 rounded-full"></div>
+                    <div className="absolute inset-0 border-3 border-cyan-500 rounded-full border-t-transparent animate-spin"></div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {openComandas.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        setSearchCode(c.code);
+                        setComanda(c);
+                        setError('');
+                        setShowDeleteConfirm(false);
+                      }}
+                      className="w-full flex justify-between items-center p-4 bg-slate-50 hover:bg-cyan-50 rounded-2xl transition-all border border-transparent hover:border-cyan-100 group"
+                    >
+                      <span className="font-mono font-black text-slate-900 group-hover:text-cyan-600 transition-colors">{c.code}</span>
+                      <span className="font-black text-slate-900">{formatCurrency(c.total)}</span>
+                    </button>
+                  ))}
+                  {openComandas.length === 0 && (
+                    <div className="text-center py-10 opacity-20">
+                      <Receipt className="w-12 h-12 mx-auto mb-2" />
+                      <p className="font-bold text-sm">Nenhuma pendência</p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -310,7 +390,9 @@ export default function Cashier() {
                           <div>
                             <div className="flex items-center gap-2">
                               {item.code && (
-                                <span className="text-[10px] font-black bg-slate-900 text-white px-1.5 py-0.5 rounded">#{item.code}</span>
+                                <span className="text-sm font-black bg-slate-900 text-white px-2.5 py-1 rounded-lg shadow-sm">
+                                  #{item.code}
+                                </span>
                               )}
                               <p className="font-bold text-slate-900">{item.name}</p>
                             </div>
@@ -409,6 +491,97 @@ export default function Cashier() {
           <PrintLayout comanda={comanda} format={printFormat} />
         </div>
       )}
+
+      {/* Modal de Confirmação Fechar Todas */}
+      <AnimatePresence>
+        {showCloseAllModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCloseAllModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            
+            {/* Modal Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-[2rem] max-w-md w-full p-8 shadow-2xl relative border border-slate-100 overflow-hidden z-10"
+            >
+              <div className="flex flex-col items-center text-center space-y-6">
+                <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center">
+                  <AlertCircle className="w-10 h-10 text-amber-600 animate-pulse" />
+                </div>
+                
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Dar baixa em todas?</h3>
+                  <p className="text-slate-500 font-medium text-sm">
+                    Essa ação vai fechar todas as comandas abertas e enviar para o histórico.
+                  </p>
+                </div>
+
+                {/* Resume Card */}
+                <div className="w-full grid grid-cols-2 gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="text-left space-y-1">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Comandas</span>
+                    <p className="text-2xl font-black text-slate-900">{openComandas.length}</p>
+                  </div>
+                  <div className="text-right space-y-1">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Valor Total</span>
+                    <p className="text-2xl font-black text-cyan-600">
+                      {formatCurrency(openComandas.reduce((acc, curr) => acc + curr.total, 0))}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex w-full gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCloseAllModal(false)}
+                    className="flex-1 px-5 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition-all cursor-pointer text-sm"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmCloseAll}
+                    disabled={loading}
+                    className="flex-1 px-5 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl shadow-lg shadow-emerald-100 hover:shadow-emerald-200 active:scale-[0.98] transition-all flex items-center justify-center cursor-pointer text-sm"
+                  >
+                    {loading ? "Processando..." : "Confirmar baixa"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast Notificações */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 rounded-2xl shadow-xl border backdrop-blur-xl"
+            style={{
+              backgroundColor: toast.type === 'success' ? 'rgba(16, 185, 129, 0.95)' : toast.type === 'error' ? 'rgba(239, 68, 68, 0.95)' : 'rgba(245, 158, 11, 0.95)',
+              borderColor: toast.type === 'success' ? 'rgb(110, 231, 183)' : toast.type === 'error' ? 'rgb(252, 165, 165)' : 'rgb(253, 230, 138)',
+              color: '#ffffff'
+            }}
+          >
+            {toast.type === 'success' && <CheckCircle2 className="w-5 h-5 text-white animate-bounce" />}
+            {toast.type === 'error' && <AlertCircle className="w-5 h-5 text-white animate-pulse" />}
+            {toast.type === 'info' && <AlertCircle className="w-5 h-5 text-white" />}
+            <span className="font-bold text-sm tracking-wide">{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

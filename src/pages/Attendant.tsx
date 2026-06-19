@@ -2,7 +2,7 @@ import { useState, useEffect, KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { storage } from '../lib/storage';
 import { Item, Comanda, Service } from '../types';
-import { generateComandaCode, formatCurrency, cn } from '../lib/utils';
+import { generateComandaCode, formatCurrency, cn, generateId } from '../lib/utils';
 import { Plus, Trash2, Receipt, Printer, CheckCircle2, ShoppingBag, Sparkles, Search, Package, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PrintLayout from '../components/PrintLayout';
@@ -17,10 +17,20 @@ export default function Attendant() {
   const [services, setServices] = useState<Service[]>([]);
   const [serviceSearch, setServiceSearch] = useState('');
   const [globalQuantity, setGlobalQuantity] = useState('1');
+  const [loadingServices, setLoadingServices] = useState(true);
 
   useEffect(() => {
-    const data = storage.getServices();
-    setServices(data);
+    const loadServices = async () => {
+      try {
+        const data = await storage.getServices();
+        setServices(data);
+      } catch (error) {
+        console.error("Erro ao carregar serviços:", error);
+      } finally {
+        setLoadingServices(false);
+      }
+    };
+    loadServices();
   }, []);
 
   const filteredServices = services.filter(s => {
@@ -41,7 +51,7 @@ export default function Attendant() {
       ));
     } else {
       const newItem: Item = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         code: service.code,
         name: service.name,
         price: service.price,
@@ -101,7 +111,7 @@ export default function Attendant() {
     if (items.length === 0) return;
     const codeToUse = comandaNumber || generateComandaCode();
 
-    const existing = storage.getOpenComandaByNumber(codeToUse);
+    const existing = await storage.getOpenComandaByNumber(codeToUse);
     if (existing) {
       alert(`A comanda #${codeToUse} já está aberta. Por favor, use outro número ou finalize a anterior.`);
       return;
@@ -118,7 +128,7 @@ export default function Attendant() {
         createdAt: now,
         updatedAt: now,
       };
-      const newComanda = storage.addComanda(comandaData);
+      const newComanda = await storage.addComanda(comandaData);
       setCreatedComanda(newComanda);
       setItems([]);
       setComandaNumber('');
@@ -253,48 +263,59 @@ export default function Attendant() {
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
-              {filteredServices.map((service) => (
-                <button
-                  key={service.id}
-                  onClick={() => addServiceToComanda(service)}
-                  className="group relative flex flex-col justify-between p-5 bg-white border border-slate-200 rounded-[2rem] transition-all hover:border-cyan-500 hover:shadow-xl hover:shadow-cyan-500/10 text-left h-40 overflow-hidden"
-                >
-                  {/* Decorative background icon */}
-                  <div className="absolute -right-4 -bottom-4 opacity-[0.03] group-hover:opacity-[0.1] group-hover:scale-110 transition-all duration-500">
-                    <Package className="w-32 h-32 text-slate-900" />
+              {loadingServices ? (
+                <div className="col-span-2 flex justify-center py-12">
+                  <div className="relative w-10 h-10">
+                    <div className="absolute inset-0 border-4 border-cyan-100 rounded-full"></div>
+                    <div className="absolute inset-0 border-4 border-cyan-500 rounded-full border-t-transparent animate-spin"></div>
                   </div>
-
-                  <div className="relative z-10 space-y-2">
-                    <div className="flex items-center justify-between">
-                      {service.code && (
-                        <span className="px-4 py-2 bg-slate-900 text-white text-xl font-black rounded-2xl group-hover:bg-cyan-600 transition-all shadow-lg shadow-slate-200 group-hover:shadow-cyan-100">
-                          #{service.code}
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-base font-black text-slate-900 leading-tight group-hover:text-cyan-900 transition-colors line-clamp-2">
-                      {service.name}
-                    </h3>
-                  </div>
-
-                  <div className="relative z-10 flex items-end justify-between mt-auto">
-                    <div className="space-y-0.5">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Preço Unitário</p>
-                      <p className="text-xl font-black text-cyan-600">
-                        {formatCurrency(service.price)}
-                      </p>
-                    </div>
-                    
-                    <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-slate-900 text-white group-hover:bg-cyan-600 group-hover:scale-110 transition-all shadow-lg shadow-slate-200 group-hover:shadow-cyan-200">
-                      <Plus className="w-6 h-6" />
-                    </div>
-                  </div>
-                </button>
-              ))}
-              {filteredServices.length === 0 && (
-                <div className="text-center py-8 opacity-40">
-                  <p className="text-xs font-bold text-slate-500">Nenhum serviço encontrado</p>
                 </div>
+              ) : (
+                <>
+                  {filteredServices.map((service) => (
+                    <button
+                      key={service.id}
+                      onClick={() => addServiceToComanda(service)}
+                      className="group relative flex flex-col justify-between p-5 bg-white border border-slate-200 rounded-[2rem] transition-all hover:border-cyan-500 hover:shadow-xl hover:shadow-cyan-500/10 text-left h-40 overflow-hidden"
+                    >
+                      {/* Decorative background icon */}
+                      <div className="absolute -right-4 -bottom-4 opacity-[0.03] group-hover:opacity-[0.1] group-hover:scale-110 transition-all duration-500">
+                        <Package className="w-32 h-32 text-slate-900" />
+                      </div>
+
+                      <div className="relative z-10 space-y-2">
+                        <div className="flex items-center justify-between">
+                          {service.code && (
+                            <span className="px-4 py-2 bg-slate-900 text-white text-xl font-black rounded-2xl group-hover:bg-cyan-600 transition-all shadow-lg shadow-slate-200 group-hover:shadow-cyan-100">
+                              #{service.code}
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="text-base font-black text-slate-900 leading-tight group-hover:text-cyan-900 transition-colors line-clamp-2">
+                          {service.name}
+                        </h3>
+                      </div>
+
+                      <div className="relative z-10 flex items-end justify-between mt-auto">
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Preço Unitário</p>
+                          <p className="text-xl font-black text-cyan-600">
+                            {formatCurrency(service.price)}
+                          </p>
+                        </div>
+                        
+                        <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-slate-900 text-white group-hover:bg-cyan-600 group-hover:scale-110 transition-all shadow-lg shadow-slate-200 group-hover:shadow-cyan-200">
+                          <Plus className="w-6 h-6" />
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                  {filteredServices.length === 0 && (
+                    <div className="text-center py-8 opacity-40">
+                      <p className="text-xs font-bold text-slate-500">Nenhum serviço encontrado</p>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -323,7 +344,7 @@ export default function Attendant() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         {item.code && (
-                          <span className="text-[10px] font-black bg-slate-900 text-white px-1.5 py-0.5 rounded">#{item.code}</span>
+                          <span className="text-xs font-black bg-slate-900 text-white px-2 py-0.5 rounded shadow-sm">#{item.code}</span>
                         )}
                         <p className="font-bold text-slate-900 text-sm truncate">{item.name}</p>
                       </div>

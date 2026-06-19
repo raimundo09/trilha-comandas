@@ -16,26 +16,36 @@ export default function Services() {
   const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
-    const data = storage.getServices();
-    setServices(data);
-    setLoading(false);
+    const loadServices = async () => {
+      try {
+        const data = await storage.getServices();
+        setServices(data);
+      } catch (error) {
+        console.error("Erro ao carregar serviços:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadServices();
   }, []);
 
   const filteredServices = services.filter(s => 
-    s.name.toLowerCase().includes(searchTerm.toLowerCase())
+    s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    s.code?.toString().includes(searchTerm)
   );
 
-  const handleAddService = (e: React.FormEvent) => {
+  const handleAddService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editName || !editPrice) return;
     
     try {
-      storage.addService({
+      await storage.addService({
         name: editName,
         price: parseFloat(editPrice),
         code: editCode ? parseInt(editCode) : undefined,
       });
-      setServices(storage.getServices());
+      const updated = await storage.getServices();
+      setServices(updated);
       setEditName('');
       setEditPrice('');
       setEditCode('');
@@ -45,15 +55,16 @@ export default function Services() {
     }
   };
 
-  const handleUpdateService = (id: string) => {
+  const handleUpdateService = async (id: string) => {
     if (!editName || !editPrice) return;
     try {
-      storage.updateService(id, {
+      await storage.updateService(id, {
         name: editName,
         price: parseFloat(editPrice),
         code: editCode ? parseInt(editCode) : undefined,
       });
-      setServices(storage.getServices());
+      const updated = await storage.getServices();
+      setServices(updated);
       setIsEditing(null);
       setEditName('');
       setEditPrice('');
@@ -63,10 +74,11 @@ export default function Services() {
     }
   };
 
-  const handleDeleteService = (id: string) => {
+  const handleDeleteService = async (id: string) => {
     try {
-      storage.deleteService(id);
-      setServices(storage.getServices());
+      await storage.deleteService(id);
+      const updated = await storage.getServices();
+      setServices(updated);
     } catch (error) {
       console.error("Error deleting service:", error);
     }
@@ -79,55 +91,14 @@ export default function Services() {
     setEditCode(service.code?.toString() || '');
   };
 
-  const importDefaults = () => {
-    const defaults = [
-      {"code": 3, "name": "Boletim de Ocorrência", "price": 50.00},
-      {"code": 5, "name": "Cadastro Internet Geral", "price": 20.00},
-      {"code": 8, "name": "Contrato de Compra e Venda", "price": 100.00},
-      {"code": 9, "name": "Contrato de Locação", "price": 75.00},
-      {"code": 14, "name": "Criação de Arte Simples", "price": 25.00},
-      {"code": 15, "name": "Criação de Arte Elaborada", "price": 50.00},
-      {"code": 18, "name": "Cópia Preto e Branco", "price": 0.75},
-      {"code": 19, "name": "Kit 2 Fotos Polaroid Médias", "price": 9.90},
-      {"code": 20, "name": "Kit 3 Fotos Polaroid Pequenas", "price": 9.90},
-      {"code": 22, "name": "Currículo com Foto e 10 Cópias", "price": 15.00},
-      {"code": 23, "name": "Currículos Simples 10 Cópias", "price": 10.00},
-      {"code": 24, "name": "Currículo Simples 2 Cópias", "price": 8.00},
-      {"code": 25, "name": "Digitação por Folha", "price": 10.00},
-      {"code": 26, "name": "Digitalização Scanner por Folha", "price": 1.00},
-      {"code": 30, "name": "Envio de Documento", "price": 3.00},
-      {"code": 31, "name": "Kit 8 Fotos 3x4 ou 2x2", "price": 15.00},
-      {"code": 32, "name": "Revelação de Foto 10x15", "price": 2.90},
-      {"code": 34, "name": "Impressão Color P", "price": 1.50},
-      {"code": 35, "name": "Impressão Color M", "price": 2.00},
-      {"code": 36, "name": "Impressão Color G", "price": 3.00},
-      {"code": 37, "name": "Impressão Preto e Branco", "price": 1.00},
-      {"code": 40, "name": "Plastificação Tamanho RG/CNH", "price": 3.00},
-      {"code": 41, "name": "Plastificação Meio A4", "price": 4.00},
-      {"code": 42, "name": "Plastificação A4", "price": 6.00},
-      {"code": 45, "name": "Serviço de Internet", "price": 7.00},
-      {"code": 46, "name": "Serviços Diversos", "price": 1.00},
-      {"code": 48, "name": "Encadernação 200 a 300 folhas", "price": 60.00},
-      {"code": 49, "name": "Topper de Bolo", "price": 15.00},
-      {"code": 52, "name": "Encadernação até 50 folhas", "price": 15.00},
-      {"code": 53, "name": "Encadernação 50 a 100 folhas", "price": 20.00},
-      {"code": 54, "name": "Impressão PB acima de 50 folhas", "price": 0.75},
-      {"code": 55, "name": "Impressão PB acima de 100 folhas", "price": 0.50},
-      {"code": 56, "name": "Serviço de Assistência", "price": 1.00},
-      {"code": 57, "name": "Etiqueta personalizada por folha", "price": 15.00},
-      {"code": 61, "name": "Encadernação 100 a 200 folhas", "price": 40.00},
-      {"code": 1912, "name": "Papel Fotográfico 180g unitário", "price": 1.00},
-      {"code": 2511, "name": "Papel Fotográfico Adesivo 135g", "price": 1.50},
-      {"code": 75, "name": "Papel Canson", "price": 1.50},
-      {"code": 3829, "name": "Assistência de Celular", "price": 10.00}
-    ];
-
-    for (const item of defaults) {
-      if (!services.find(s => s.name === item.name)) {
-        storage.addService(item);
-      }
+  const importDefaults = async () => {
+    try {
+      await storage.seedDefaultServices();
+      const updated = await storage.getServices();
+      setServices(updated);
+    } catch (error) {
+      console.error("Error importing defaults:", error);
     }
-    setServices(storage.getServices());
   };
 
   if (loading) {
